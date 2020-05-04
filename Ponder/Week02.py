@@ -13,6 +13,7 @@ from fractions import Fraction
 from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KDTree
 
 url = "https://byui-cs.github.io/cs450-course/week01/iris.data"
 data = pd.read_csv(url)
@@ -35,6 +36,19 @@ class kNN_classifier():
   def fit(self, data, targets):
     self.data = data
     self.targets = targets
+    self.kdTree = KDTree(self.data, leaf_size=2)
+
+  def kd_predict(self, data, knn):
+    predict_list = []
+    dist, ind = self.kdTree.query(data, k = knn)
+    for index_list in ind:
+      k_list = []
+      for index in index_list:
+        k_list.append(self.targets[index][0])
+      k_count = Counter(k_list)
+      prediction = k_count.most_common(1)
+      predict_list.append(prediction[0][0])
+    return predict_list
 
   def calc_distance(self, x1, x2):
     dist = np.linalg.norm(x1-x2)
@@ -66,7 +80,15 @@ class kNN_classifier():
 
 myClassifier = kNN_classifier()
 myClassifier.fit(train_data, train_targets)
-predictions = myClassifier.predict(test_data, 3)
+predictions = myClassifier.predict(test_data, 6)
+print(predictions)
+
+result = np.equal(test_targets.flatten(), predictions)
+accuracy = np.count_nonzero(result == 1) / len(predictions)
+
+accuracy
+
+predictions = myClassifier.kd_predict(test_data, 7)
 print(predictions)
 
 result = np.equal(test_targets.flatten(), predictions)
