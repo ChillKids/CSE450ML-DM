@@ -17,6 +17,15 @@ from google.colab import files
 import numpy as np
 import pandas as pd
 from sklearn import preprocessing
+from sklearn.metrics import mean_absolute_error
+import io
+import requests
+from sklearn.metrics import mean_squared_error
+
+from sklearn.datasets import make_regression
+from matplotlib import pyplot as plt
+import numpy as np
+from sklearn.linear_model import LinearRegression
 
 # Car Evaluation
 # Read Data into DF
@@ -76,20 +85,53 @@ regr.fit(train_data, train_targets)
 predictions = regr.predict(test_data)
 
 df = pd.DataFrame({'Actual': test_targets.to_records(index=False).flatten(), 'Predicted': predictions.flatten()})
-df
 
-# ...
-# ... code here to load a training and testing set
-# ...
+print ('MSE = ' , mean_squared_error(test_targets, predictions))
+print ('MAE = ', mean_absolute_error(test_targets, predictions))
+lr = LinearRegression()
+lr.fit(test_data, predictions)
+w = lr.coef_[0]
+plt.plot(test_data, w*test_data, c='green')
 
-classifier = KNeighborsClassifier(n_neighbors=3)
-classifier.fit(train_data, train_target)
-predictions = classifier.predict(test_data)
+# Student-mat Evaluation
+# Read Data into DF
+url = "https://raw.githubusercontent.com/ChillKids/CSE450ML-DM/master/Ponder/student-mat.csv"
+s=requests.get(url).content
+df = pd.read_csv(io.StringIO(s.decode('utf-8')),sep = ";", na_values=["?"])
 
-# ...
-# ... code here to load a training and testing set
-# ...
+df1 = df.iloc[:, :32]
+df2 = df.iloc[:, 32:]
+
+
+std_scale = preprocessing.StandardScaler().fit(df1[['age', 'famrel','freetime','goout','Dalc','Walc','health','absences','G1','G2']])
+df1_std = std_scale.transform(df1[['age', 'famrel','freetime','goout','Dalc','Walc','health','absences','G1','G2']])
+
+
+df1[["schoolsup", "famsup", "paid", "activities", "nursery", "higher", "internet", "romantic"]] = (df1[["schoolsup", "famsup", "paid", "activities", "nursery", "higher", "internet", "romantic"]] == 'yes').astype(int)
+df1["famsize"] = (df1["famsize"] == 'GT3').astype(int)
+df1["school"] = (df1["school"] == 'GP').astype(int)
+df1["sex"] = (df1["sex"] == 'M').astype(int)
+df1["address"] = (df1["address"] == 'U').astype(int)
+df1["Pstatus"] = (df1["Pstatus"] == 'T').astype(int)
+df1[['G1','G2']] = df1[['G1','G2']].astype(int)
+
+#[['age', 'famrel','freetime','goout','Dalc','Walc','health','absences','G1','G2']]
+df1 = pd.get_dummies(df1, columns=["Mjob","Fjob","reason","guardian"])
+
+std_scale = preprocessing.StandardScaler().fit(df1)
+df1 = std_scale.transform(df1)
+
+train_data, test_data, train_targets, test_targets = train_test_split(df1, df2.to_numpy(), test_size=.3)
 
 regr = KNeighborsRegressor(n_neighbors=3)
-regr.fit(train_data, train_target)
+regr.fit(train_data, train_targets)
+
 predictions = regr.predict(test_data)
+
+print ("MSE = ", mean_squared_error(test_targets, predictions))
+print ("MAE = ", mean_absolute_error(test_targets, predictions))
+
+lr = LinearRegression()
+lr.fit(test_data, predictions)
+w = lr.coef_[0]
+plt.plot(test_data, w*test_data, c='green')
