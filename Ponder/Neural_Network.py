@@ -19,312 +19,125 @@ from keras.preprocessing.text import Tokenizer
 
 from keras.preprocessing.sequence import pad_sequences
 
+from sklearn.model_selection import train_test_split
+
 import pandas as pd
 
 import numpy as np
 
 import spacy
 
+import io
+
+from google.colab import files
+
 nlp=spacy.load("en")
 
 #load the dataset
 
-train=pd.read_csv("../datasets/training.1600000.processed.noemoticon.csv" , encoding= "latin-1")
+columns = ["polarity", "tweet ID", "date", "query", "username", "text"]
 
-Y_train = train[train.columns[0]]
+df = pd.read_csv("/content/drive/My Drive/Dataset/TweetPolarity.csv", names=columns, na_values=["?"], encoding= "latin-1")
 
-X_train = train[train.columns[5]]
+df = df.drop(columns=["tweet ID", "date", "query", "username"])
+
+import re
+from sklearn.feature_extraction.text import CountVectorizer
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
+# Higher the polarity, more positive the sentance is
+
+targets,y, features = np.hsplit(df,np.array([1,1]))
+
+#encoding the sentances into vectors
+features = features.apply(lambda x: x.str.lower())
+features= features.replace(to_replace=r'[^a-zA-z0-9\s]', value='', regex=True) 
+
+max_features = 690960
+tokenizer = Tokenizer(num_words=max_features, split=' ')
+tokenizer.fit_on_texts(df['text'].values)
+features = tokenizer.texts_to_sequences(df['text'].values)
+features = pad_sequences(features, maxlen=100)
+
+word_index = tokenizer.word_index   # one hot coding
+vocab_size = len(tokenizer.word_index) + 1
+print('Found %s unique tokens.' % len(word_index))
+
+targets = pd.get_dummies(df.polarity)
+ax = targets.plot.hist(bins=12, alpha=0.5)
+
+print(targets)
 
 # split the data into test and train
 
-from sklearn.model_selection import train_test_split
-
-trainset1x, trainset2x, trainset1y, trainset2y = train_test_split(X_train.values, Y_train.values, test_size=0.02,random_state=42 )
-
-trainset2y=pd.get_dummies(trainset2y)
-
-# function to remove stopwords
-
-def stopwords(sentence):
-
-    new=[]
-
-    sentence=nlp(sentence)
-
-    for w in sentence:
-
-        if (w.is_stop == False) & (w.pos_ !="PUNCT"):
-
-            new.append(w.string.strip())
-
-        c=" ".join(str(x) for x in new)
-
-    return c
-
-# function to lemmatize the tweets
-
-def lemmatize(sentence):
-
-    sentence=nlp(sentence)
-
-    str=""
-
-    for w in sentence:
-
-        str+=" "+w.lemma_
-
-    return nlp(str)
-
-#loading the glove model
-
-def loadGloveModel(gloveFile):
-
-    print("Loading Glove Model")
-
-    f = open(gloveFile,'r')
-
-    model = {}
-
-    for line in f:
-
-        splitLine = line.split()
-
-        word = splitLine[0]
-
-        embedding = [float(val) for val in splitLine[1:]]
-
-        model[word] = embedding
-
-    print ("Done."),len(model),(" words loaded!")
-
-    return model
-
-# save the glove model
-
-model=loadGloveModel("/mnt/hdd/datasets/glove/glove.twitter.27B.200d.txt")
-
-#vectorising the sentences
-
-def sent_vectorizer(sent, model):
-
-    sent_vec = np.zeros(200)
-
-    numw = 0
-
-    for w in sent.split():
-
-        try:
-
-            sent_vec = np.add(sent_vec, model[str(w)])
-
-            numw+=1
-
-        except:
-
-            pass
-
-    return sent_vec
-
-#obtain a clean vector
-
-cleanvector=[]
-
-for i in range(trainset2x.shape[0]):
-
-    document=trainset2x[i]
-
-    document=document.lower()
-
-    document=lemmatize(document)
-
-    document=str(document)
-
-    cleanvector.append(sent_vectorizer(document,model))
-
-#Getting the input and output in proper shape
-
-cleanvector=np.array(cleanvector)
-
-cleanvector =cleanvector.reshape(32000,200,1)
-
-#tokenizing the sequences
-
-tokenizer = Tokenizer(num_words=16000)
-
-tokenizer.fit_on_texts(trainset2x)
-
-sequences = tokenizer.texts_to_sequences(trainset2x)
-
-word_index = tokenizer.word_index
-
-print('Found %s unique tokens.' % len(word_index))
-
-data = pad_sequences(sequences, maxlen=15, padding="post")
-
-print(data.shape)
-
-#reshape the data and preparing to train
-
-data=data.reshape(32000,15,1)
-
-from sklearn.model_selection import train_test_split
-
-trainx, validx, trainy, validy = train_test_split(data, trainset2y, test_size=0.3,random_state=42 )
-
-#calculate the number of words
-
-nb_words=len(tokenizer.word_index)+1
-
-#obtain theembedding matrix
-
-embedding_matrix = np.zeros((nb_words, 200))
-
-for word, i in word_index.items():
-
-    embedding_vector = model.get(word)
-
-    if embedding_vector is not None:
-
-        embedding_matrix[i] = embedding_vector
-
-print('Null word embeddings: %d' % np.sum(np.sum(embedding_matrix, axis=1) == 0))
-
-trainy=np.array(trainy)
-
-validy=np.array(validy)
-
-#building a simple RNN model
-
-def modelbuild():
-
-    model = Sequential()
-
-    model.add(keras.layers.InputLayer(input_shape=(15,1)))
-
-    keras.layers.embeddings.Embedding(nb_words, 15, weights=[embedding_matrix], input_length=15,
-
-    trainable=False)
-
-
-    model.add(keras.layers.recurrent.SimpleRNN(units = 100, activation='relu',
-
-    use_bias=True))
-
-    model.add(keras.layers.Dense(units=1000, input_dim = 2000, activation='sigmoid'))
-
-    model.add(keras.layers.Dense(units=500, input_dim=1000, activation='relu'))
-
-    model.add(keras.layers.Dense(units=2, input_dim=500,activation='softmax'))
-
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-    return model
-
-
-
-#compiling the model
-
-finalmodel = modelbuild()
-
-finalmodel.fit(trainx, trainy, epochs=10, batch_size=120,validation_data=(validx,validy))
-
-import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-from sklearn.model_selection import train_test_split
-import pandas as pd
-
-inputs = keras.Input(shape=(784,))
-# Just for demonstration purposes.
-img_inputs = keras.Input(shape=(32, 32, 3))
-inputs.shape
-dense = layers.Dense(64, activation="relu")
-x = dense(inputs)
-x = layers.Dense(64, activation="relu")(x)
-outputs = layers.Dense(10)(x)
-model = keras.Model(inputs=inputs, outputs=outputs, name="mnist_model")
-model.summary()
-
-keras.utils.plot_model(model, "my_first_model_with_shape_info.png", show_shapes=True)
-
-(x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
-
-x_train = x_train.reshape(60000, 784).astype("float32") / 255
-x_test = x_test.reshape(10000, 784).astype("float32") / 255
-
-model.compile(
-    loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-    optimizer=keras.optimizers.RMSprop(),
-    metrics=["accuracy"],
-)
-
-history = model.fit(x_train, y_train, batch_size=64, epochs=2, validation_split=0.2)
-
-test_scores = model.evaluate(x_test, y_test, verbose=2)
-print("Test loss:", test_scores[0])
-print("Test accuracy:", test_scores[1])
+train_data, test_data, train_targets, test_targets = train_test_split(features, targets, test_size=.02, random_state=42 )
+
+from keras.layers import Embedding
+
+embeddings_index = dict()
+f = open('/content/drive/My Drive/Dataset/GloVe/glove.6B.100d.txt')
+for line in f:
+	values = line.split()
+	word = values[0]
+	coefs = np.asarray(values[1:], dtype='float32')
+	embeddings_index[word] = coefs
+f.close()
+print('Loaded %s word vectors.' % len(embeddings_index))
+# create a weight matrix for words in training docs
+embedding_matrix = np.zeros((vocab_size, 100))
+for word, i in tokenizer.word_index.items():
+	embedding_vector = embeddings_index.get(word)
+	if embedding_vector is not None:
+		embedding_matrix[i] = embedding_vector
+print(embedding_matrix.shape)
 
 from __future__ import print_function
-import keras
-from keras.datasets import mnist
+
+from keras.preprocessing import sequence
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Flatten
-from keras.layers import Conv2D, MaxPooling2D
-from keras import backend as K
+from keras.layers import Dense, Embedding
+from keras.layers import LSTM
+from keras.datasets import imdb
 
-batch_size = 128
-num_classes = 10
-epochs = 12
+max_features = 20000
+# cut texts after this number of words (among top max_features most common words)
+maxlen = 100
+batch_size = 10
 
-# input image dimensions
-img_rows, img_cols = 28, 28
+print('Loading data...')
+print(len(train_data), 'train sequences')
+print(len(test_data), 'test sequences')
 
-# the data, split between train and test sets
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
+print('Pad sequences (samples x time)')
+train_data = sequence.pad_sequences(train_data, maxlen=maxlen)
+test_data = sequence.pad_sequences(test_data, maxlen=maxlen)
+print('train_data shape:', train_data.shape)
+print('test_data shape:', test_data.shape)
 
-if K.image_data_format() == 'channels_first':
-    x_train = x_train.reshape(x_train.shape[0], 1, img_rows, img_cols)
-    x_test = x_test.reshape(x_test.shape[0], 1, img_rows, img_cols)
-    input_shape = (1, img_rows, img_cols)
-else:
-    x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 1)
-    x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 1)
-    input_shape = (img_rows, img_cols, 1)
+import tensorflow as tf
 
-x_train = x_train.astype('float32')
-x_test = x_test.astype('float32')
-x_train /= 255
-x_test /= 255
-print('x_train shape:', x_train.shape)
-print(x_train.shape[0], 'train samples')
-print(x_test.shape[0], 'test samples')
-
-# convert class vectors to binary class matrices
-y_train = keras.utils.to_categorical(y_train, num_classes)
-y_test = keras.utils.to_categorical(y_test, num_classes)
-
+print('Build model...')
 model = Sequential()
-model.add(Conv2D(32, kernel_size=(3, 3),
-                 activation='relu',
-                 input_shape=input_shape))
-model.add(Conv2D(64, (3, 3), activation='relu'))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.25))
-model.add(Flatten())
-model.add(Dense(128, activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(num_classes, activation='softmax'))
+model.add(Embedding(vocab_size, 100, weights=[embedding_matrix], input_length=100, trainable=True))
+model.add(LSTM(128, dropout=0.2, recurrent_dropout=0.2))
 
-model.compile(loss=keras.losses.categorical_crossentropy,
-              optimizer=keras.optimizers.Adadelta(),
+model.add(Dense(2, activation='softmax'))
+
+
+dot_img_file = '/tmp/model_1.png'
+tf.keras.utils.plot_model(model, to_file=dot_img_file, show_shapes=True)
+
+# try using different optimizers and different optimizer configs
+model.compile(loss='binary_crossentropy', 
+              optimizer='adam', 
               metrics=['accuracy'])
 
-model.fit(x_train, y_train,
+print('Train...')
+model.fit(train_data, train_targets,
           batch_size=batch_size,
-          epochs=epochs,
-          verbose=1,
-          validation_data=(x_test, y_test))
-score = model.evaluate(x_test, y_test, verbose=0)
-print('Test loss:', score[0])
-print('Test accuracy:', score[1])
+          epochs=150,
+          validation_data=(test_data, test_targets))
+score, mse = model.evaluate(test_data, test_targets,
+                            batch_size=batch_size)
+print('Test score:', score)
+print('Test mse:', mse)
